@@ -13,6 +13,8 @@ util.AddNetworkString( "lf_weapon_properties_editor" )
 local Weapons_Edited = {}
 local Weapons_Replaced = {}
 local Weapons_TempActive = {}
+local Weapons_ReplacePreset = {Presets = {}, Current = "default"}
+
 local dir = "lf_weapon_properties_editor"
 local dir_presets = dir.."/presets_v1_0"
 
@@ -131,6 +133,14 @@ local function GetReplacements( ply )
 	
 end
 
+local function GetReplacementPresets(ply)
+	if not istable( Weapons_ReplacePreset ) then return end
+
+	netmsg( 9 )
+	net.WriteTable( Weapons_ReplacePreset.Presets )
+	net.Send( ply )
+end
+
 local function SaveReplacement( weapon, value, ply )
 	
 	if not istable( Weapons_Replaced ) then return end
@@ -140,8 +150,9 @@ local function SaveReplacement( weapon, value, ply )
 		return
 	end
 	Weapons_Replaced[weapon] = value
-	
-	file.Write( dir.."/replacements.txt", von.serialize( Weapons_Replaced ) )
+	Weapons_ReplacePreset.Presets[Weapons_ReplacePreset.Current] = Weapons_Replaced
+
+	file.Write( dir.."/replacements.txt", von.serialize( Weapons_ReplacePreset ) )
 	GetReplacements( ply )
 	
 end
@@ -150,8 +161,9 @@ local function DeleteReplacement( weapon, ply )
 	
 	if not istable( Weapons_Replaced ) then return end
 	Weapons_Replaced[weapon] = nil
-	
-	file.Write( dir.."/replacements.txt", von.serialize( Weapons_Replaced ) )
+	Weapons_ReplacePreset.Presets[Weapons_ReplacePreset.Current] = {}
+
+	file.Write( dir.."/replacements.txt", von.serialize( Weapons_ReplacePreset ) )
 	if ply then GetReplacements( ply ) end
 	
 end
@@ -159,7 +171,11 @@ end
 local function LoadFiles()
 	
 	if file.Exists( dir.."/replacements.txt", "DATA" ) then
-		Weapons_Replaced = von.deserialize( file.Read( dir.."/replacements.txt", "DATA" ) ) or {}
+		Weapons_ReplacePreset = von.deserialize( file.Read( dir.."/replacements.txt", "DATA" ) ) or {}
+		PrintTable(Weapons_ReplacePreset.Presets)
+		//netmsg( 9 )
+		//net.WriteTable( Weapons_ReplacePreset.Presets )
+		//net.Broadcast()
 	end
 	
 	local files = file.Find( dir_presets.."/*.txt", "DATA" )
@@ -205,6 +221,8 @@ net.Receive("lf_weapon_properties_editor", function( len, ply )
 		DeleteReplacement( net.ReadString(), ply )
 	elseif func == 8 then -- Refresh weapon entities
 		RespawnWeapon( net.ReadString() )
+	elseif func == 9 then
+		GetReplacementPresets(ply)
 	end
 	
 end )
@@ -261,7 +279,7 @@ if CLIENT then
 
 
 local Version = "1.1"
-local Menu = { Main = {}, Editor = {}, PresetList = {}, Replacements = {} }
+local Menu = { Main = {}, Editor = {}, PresetList = {}, Replacements = {}, ReplacePresets = {}}
 
 local default_ammo_types = {
 	"none",
@@ -396,6 +414,10 @@ net.Receive("lf_weapon_properties_editor", function()
 		--
 	elseif func == 8 then -- Refresh weapon entities
 		--
+	elseif func == 9 then
+		if IsValid( Menu.ReplacePresets.List ) then
+			Menu.ReplacePresets.List:Populate( net.ReadTable() )
+		end
 	end
 	
 end )
@@ -711,6 +733,74 @@ function Menu.PresetList:Init()
 	
 end
 
+function Menu.ReplacePresets:Init()
+	
+	local Frame = vgui.Create( "DFrame", Menu.Main.Frame )
+	local fw, fh = 320, 600
+	local pw, ph = fw - 10, fh - 34
+	Frame:SetPos( 335, 10 )
+	Frame:SetSize( fw, fh )
+	Frame:SetTitle( "Presets" )
+	Frame:SetVisible( true )
+	Frame:SetDraggable( true )
+	Frame:SetScreenLock( false )
+	Frame:ShowCloseButton( true )
+	Frame:MakePopup()
+	Frame:SetKeyboardInputEnabled( false )
+	function Frame:Paint( w, h )
+		DrawBlur( self, 2 )
+		draw.RoundedBox( 10, 0, 0, w, h, Color( 0, 99, 177, 200 ) ) return true
+	end
+	function Frame.lblTitle:Paint( w, h )
+		draw.SimpleTextOutlined( Frame.lblTitle:GetText(), "DermaDefaultBold", 1, 2, Color( 255, 255, 255, 255 ), 0, 0, 1, Color( 0, 0, 0, 255 ) ) return true
+	end
+	
+	
+
+
+	local pnl = Frame:Add( "DPanel" )
+	pnl:Dock( FILL )
+	pnl:DockPadding( 10, 10, 10, 10 )
+	
+	
+	Menu.ReplacePresets.List = pnl:Add( "DListView" )
+	Menu.ReplacePresets.List:Dock( FILL )
+	Menu.ReplacePresets.List:SetMultiSelect( true )
+	Menu.ReplacePresets.List:AddColumn( "Presets" )
+	function Menu.ReplacePresets.List:DoDoubleClick( id, sel )
+		local weapon = tostring( sel:GetValue( 1 ) )
+		Menu.Editor:Init( weapon )
+	end
+	
+	function Menu.ReplacePresets.List:Populate(items)
+		print("___ cool debug! ___")
+		self:Clear()
+		for _, v in pairs( items ) do
+			self:AddLine( _ )
+		end
+		self:SortByColumn( 1 )
+	end
+	
+	netmsg( 9 )
+	net.SendToServer()
+
+	local b = pnl:Add( "DButton" )
+	b:Dock( BOTTOM )
+	b:DockMargin( 0, 10, 0, 0 )
+	b:SetHeight( 20 )
+	b:SetText( "Delete selected files" )
+	b.DoClick = function()
+		local sel = Menu.ReplacePresets.List:GetSelected()
+		for k, v in pairs( sel ) do
+			local filename = tostring( v:GetValue(1) )
+			netmsg( 4 )
+			net.WriteString( filename )
+			net.SendToServer()
+		end
+	end
+	
+end
+
 function Menu.Replacements:Init()
 	
 	local Frame = vgui.Create( "DFrame", Menu.Main.Frame )
@@ -871,6 +961,15 @@ function Menu.Replacements:Init()
 		end
 	end
 	
+	local b = pnl:Add( "DButton" )
+	b:Dock( BOTTOM )
+	b:DockMargin( 0, 10, 0, 0 )
+	b:SetHeight( 20 )
+	b:SetText( "Replacement Presets" )
+	b.DoClick = function()
+		Menu.ReplacePresets:Init()
+	end
+
 end
 
 function Menu.Main:Init()
