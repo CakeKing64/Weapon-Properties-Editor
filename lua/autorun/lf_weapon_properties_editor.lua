@@ -125,10 +125,10 @@ end
 
 local function GetReplacements( ply )
 	
-	if not istable( Weapons_Replaced ) then return end
+	if not istable(Weapons_Replaced ) then Weapons_ReplacePreset = {} end
 	
 	netmsg( 6 )
-	net.WriteTable( Weapons_Replaced )
+	net.WriteTable( Weapons_Replaced)
 	net.Send( ply )
 	
 end
@@ -141,6 +141,30 @@ local function GetReplacementPresets(ply)
 	net.Send( ply )
 end
 
+local function LoadReplacementPreset(ply, name)
+	if not istable( Weapons_ReplacePreset ) then return end
+	print(name)
+	print(Weapons_ReplacePreset.Presets[name])
+	Weapons_Replaced = Weapons_ReplacePreset.Presets[name]
+	Weapons_ReplacePreset.Current = name
+	GetReplacements( ply ) -- Update the new replacements
+end
+
+local function SaveReplacementPreset(ply, name)
+	if not istable( Weapons_ReplacePreset ) then return end
+	Weapons_ReplacePreset.Presets[name] = Weapons_Replaced
+	file.Write( dir.."/replacements.txt", von.serialize( Weapons_ReplacePreset ) )
+
+	GetReplacementPresets(ply)
+end
+
+local function DeleteReplacementPreset(ply, name)
+	if not istable( Weapons_ReplacePreset.Presets[name] ) then return end
+	Weapons_ReplacePreset.Presets[name] = nil
+	file.Write( dir.."/replacements.txt", von.serialize( Weapons_ReplacePreset ) )
+	GetReplacementPresets(ply)
+end
+
 local function SaveReplacement( weapon, value, ply )
 	
 	if not istable( Weapons_Replaced ) then return end
@@ -151,11 +175,12 @@ local function SaveReplacement( weapon, value, ply )
 	end
 	Weapons_Replaced[weapon] = value
 	Weapons_ReplacePreset.Presets[Weapons_ReplacePreset.Current] = Weapons_Replaced
-
+	
 	file.Write( dir.."/replacements.txt", von.serialize( Weapons_ReplacePreset ) )
 	GetReplacements( ply )
 	
 end
+
 
 local function DeleteReplacement( weapon, ply )
 	
@@ -223,6 +248,16 @@ net.Receive("lf_weapon_properties_editor", function( len, ply )
 		RespawnWeapon( net.ReadString() )
 	elseif func == 9 then
 		GetReplacementPresets(ply)
+	elseif func == 10 then
+		LoadReplacementPreset(ply, net.ReadString())
+	elseif func == 11 then -- Load saved preset thingus
+		LoadReplacementPreset(ply , Weapons_ReplacePreset.Current)
+	elseif func == 12 then
+		SaveReplacementPreset(ply, net.ReadString())
+	elseif func == 13 then
+		SaveReplacementPreset(ply, Weapons_ReplacePreset.Current)
+	elseif func == 14 then
+		DeleteReplacementPreset(ply, net.ReadString())
 	end
 	
 end )
@@ -418,6 +453,8 @@ net.Receive("lf_weapon_properties_editor", function()
 		if IsValid( Menu.ReplacePresets.List ) then
 			Menu.ReplacePresets.List:Populate( net.ReadTable() )
 		end
+	elseif func == 10 then
+		print("sussy baka")
 	end
 	
 end )
@@ -768,12 +805,13 @@ function Menu.ReplacePresets:Init()
 	Menu.ReplacePresets.List:SetMultiSelect( true )
 	Menu.ReplacePresets.List:AddColumn( "Presets" )
 	function Menu.ReplacePresets.List:DoDoubleClick( id, sel )
-		local weapon = tostring( sel:GetValue( 1 ) )
-		Menu.Editor:Init( weapon )
+		local preset_name = tostring( sel:GetValue( 1 ) )
+		netmsg( 10 )
+		net.WriteString(preset_name)
+		net.SendToServer()
 	end
 	
 	function Menu.ReplacePresets.List:Populate(items)
-		print("___ cool debug! ___")
 		self:Clear()
 		for _, v in pairs( items ) do
 			self:AddLine( _ )
@@ -781,8 +819,25 @@ function Menu.ReplacePresets:Init()
 		self:SortByColumn( 1 )
 	end
 	
+	Menu.ReplacePresets.LeftEntry = pnl:Add( "DTextEntry" )
+	Menu.ReplacePresets.LeftEntry:Dock( TOP )
+	Menu.ReplacePresets.LeftEntry:SetHeight( 20 )
+	
+	local b = pnl:Add( "DButton" )
+	b:Dock( TOP )
+	b:DockMargin( 0, 10, 0, 10 )
+	b:SetHeight( 20 )
+	b:SetText( "Save Preset" )
+	b.DoClick = function()
+		msg = Menu.ReplacePresets.LeftEntry:GetText()
+		netmsg(12)
+		net.WriteString(msg)
+		net.SendToServer()
+	end
+
 	netmsg( 9 )
 	net.SendToServer()
+
 
 	local b = pnl:Add( "DButton" )
 	b:Dock( BOTTOM )
@@ -793,7 +848,7 @@ function Menu.ReplacePresets:Init()
 		local sel = Menu.ReplacePresets.List:GetSelected()
 		for k, v in pairs( sel ) do
 			local filename = tostring( v:GetValue(1) )
-			netmsg( 4 )
+			netmsg( 14 )
 			net.WriteString( filename )
 			net.SendToServer()
 		end
@@ -943,7 +998,7 @@ function Menu.Replacements:Init()
 		self:SortByColumn( 1 )
 	end
 	
-	netmsg( 6 )
+	netmsg( 11 )
 	net.SendToServer()
 	
 	local b = pnl:Add( "DButton" )
